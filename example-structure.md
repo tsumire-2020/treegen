@@ -1,7 +1,7 @@
 # 例
 
 ```tree
-kajotecho-backend/
+backend/
   src/
     functions/
       createRecord/
