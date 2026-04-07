@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Builds
+dist/
+
+# Tests / tooling output
+coverage/
+.vitest/
+
+# Local files
+.DS_Store
+*.log
+*.tmp
+
+# Example / sandbox outputs
+sandbox/
+
+# Environment / config
+.env
+.env.*
+!.env.example
+
+# Package managers
+pnpm-lock.yaml
+yarn.lock
+package-lock.json

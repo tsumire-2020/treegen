@@ -1,0 +1,39 @@
+# 例
+
+```tree
+kajotecho-backend/
+  src/
+    functions/
+      createRecord/
+        handler.ts
+        schema.ts
+      listRecords/
+        handler.ts
+        schema.ts
+      getRecord/
+        handler.ts
+        schema.ts
+      generateUploadUrl/
+        handler.ts
+        schema.ts
+    libs/
+      dynamodb/
+      response/
+      auth/
+      validation/
+      utils/
+    types/
+    config/
+  infra/
+    stacks/
+    constructs/
+    config/
+  events/
+  tests/
+    unit/
+    integration/
+  .env.example
+  package.json
+  tsconfig.json
+  README.md
+```
