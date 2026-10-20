@@ -4,6 +4,34 @@ import { Diagnostic, InputError, SourceRange, fail, range } from '../utils/error
 export type Cell = { value: string; source: SourceRange };
 export type Row = Cell[];
 
+// Markdown delimiter flanking rules distinguish emphasis from identifiers such
+// as snake_case. Asterisks may form emphasis inside a word; underscores may not.
+function hasEmphasis(value: string): boolean {
+  const chars = Array.from(value);
+  const runs: { marker: string; length: number; open: boolean; close: boolean }[] = [];
+  const whitespace = (c: string | undefined) => c === undefined || /\s/u.test(c);
+  const punctuation = (c: string | undefined) => c !== undefined && /[\p{P}\p{S}]/u.test(c);
+  for (let i = 0; i < chars.length; i++) {
+    if (chars[i] === '\\') { i++; continue; }
+    const marker = chars[i];
+    if (marker !== '*' && marker !== '_') continue;
+    const start = i;
+    while (chars[i + 1] === marker) i++;
+    const before = chars[start - 1], after = chars[i + 1];
+    const left = !whitespace(after) && (!punctuation(after) || whitespace(before) || punctuation(before));
+    const right = !whitespace(before) && (!punctuation(before) || whitespace(after) || punctuation(after));
+    const open = left && (marker === '*' || !right || punctuation(before));
+    const close = right && (marker === '*' || !left || punctuation(after));
+    const length = i - start + 1;
+    if (close && runs.some(run => run.marker === marker && run.open &&
+      // A delimiter that can both open and close obeys the rule of three.
+      (!(run.close || open) || (run.length + length) % 3 !== 0 ||
+        (run.length % 3 === 0 && length % 3 === 0)))) return true;
+    runs.push({ marker, length, open, close });
+  }
+  return false;
+}
+
 export function parseCsv(text: string, file = '<input>'): Row[] {
   if (text.startsWith('\uFEFF')) text = text.slice(1);
   const chars = Array.from(text);
@@ -128,7 +156,7 @@ export function assembleRows(rows: Row[], markdown = false): TreeNode[] {
     const cells: Record<string, Cell> = {};
     required.forEach(n => { cells[n] = row[indexes.get(n)!]; });
     if (markdown) required.forEach(n => {
-      if (/`|<[^>]*>|&(?:#\w+|[A-Za-z][\w]*);|!?\[[^\]]*\]\s*(?:\([^)]*\)|\[[^\]]*\])|(?:^|\s)(?:\*{1,2}|_{1,2})\S.*(?:\*{1,2}|_{1,2})(?:$|\s)/.test(cells[n].value)) error('CELL_DECORATION', '対象セルは平文のみ使用できます', cells[n], n);
+      if (/`|<[^>]*>|&(?:#\w+|[A-Za-z][\w]*);|!?\[[^\]]*\]\s*(?:\([^)]*\)|\[[^\]]*\])/.test(cells[n].value) || hasEmphasis(cells[n].value)) error('CELL_DECORATION', '対象セルは平文のみ使用できます', cells[n], n);
     });
     const name = cells.name.value, type = cells.type.value;
     if (unsafeName(name) || name.includes('/')) error('INVALID_NAME', 'name は安全な単一セグメントで指定してください', cells.name, 'name');

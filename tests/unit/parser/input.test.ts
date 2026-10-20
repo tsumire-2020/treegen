@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { enumerateTargets } from '../../../src/parser/markdown.js';
 import { parseInput } from '../../../src/parser/input.js';
 import { assembleRows, parseCsv, tableCells } from '../../../src/parser/rows.js';
 import { InputError } from '../../../src/utils/errors.js';
@@ -196,5 +197,92 @@ describe('table first-column inline syntax', () => {
   it('does not truncate a selected table when a later row begins with a code span', () => {
     const text = 'id|parent_id|name|type\n---|---|---|---\np||parent|directory\n`child`|p|child|file';
     expect(() => parseInput(text, 'x.md')).toThrow(/CELL_DECORATION/);
+  });
+});
+
+
+describe('D09 emphasis delimiters in required Markdown cells', () => {
+  const cases = [
+    ['id', 'pre**bold**post'], ['parent_id', 'pre**bold**post'],
+    ['name', '_bold_.txt'], ['name', '(**bold**).txt'],
+    ['name', '*bold*.txt'], ['name', '__bold__.txt'],
+    ['name', '「_bold_」.txt'], ['name', '***bold***.txt'],
+    ['type', '*file*']
+  ];
+  it.each(cases)('rejects %s=%s with original diagnostics', (field, value) => {
+    for (const headers of [['id', 'parent_id', 'name', 'type'], ['parent_path', 'name', 'type']]) {
+      if (!headers.includes(field)) continue;
+      const values: Record<string, string> = { id: 'child', parent_id: '', parent_path: '', name: 'child', type: 'file', [field]: value };
+      const text = ['# intro', '', headers.join('|'), headers.map(() => '---').join('|'), `|${headers.map(h => values[h]).join('|')}|`].join('\n');
+      const errors = diagnostics(() => parseInput(text, 'emphasis.md'));
+      expect(errors).toContainEqual(expect.objectContaining({
+        code: 'CELL_DECORATION', field, value,
+        source: expect.objectContaining({ file: 'emphasis.md', line: 5, target: 'table:1' })
+      }));
+    }
+  });
+  it('checks decorated parent paths too', () => {
+    const errors = diagnostics(() => parseInput('parent_path|name|type\n---|---|---\n_bold_.dir|child|file', 'x.md'));
+    expect(errors).toContainEqual(expect.objectContaining({ code: 'CELL_DECORATION', field: 'parent_path', value: '_bold_.dir', source: expect.objectContaining({ line: 3, target: 'table:1' }) }));
+  });
+  it.each(['snake_case', 'pre__bold__post', 'a_b_c.txt', 'word_', '_word'])('preserves literal delimiters in %s', value => {
+    expect(parseInput(`id|parent_id|name|type|note\n---|---|---|---|---\n${value}||${value}|directory|_ignored_.txt\nchild|${value}|child|file|pre**ignored**post`, 'x.md')[0].children[0].name).toBe('child');
+    expect(parseInput(`parent_path|name|type\n---|---|---\n||${value}|directory\n${value}|child|file`, 'x.md')[0].children[0].name).toBe('child');
+  });
+  it('keeps CSV decoration literal', () => {
+    expect(parseInput(csv('pre**bold**post,,_bold_.txt,file'), 'x.csv')[0].name).toBe('_bold_.txt');
+  });
+});
+
+describe('D15/D16 HTML block boundaries', () => {
+  const hidden = ['```tree', 'hidden', '```', 'parent_path|name|type', '---|---|---', '||hidden|file'];
+  const blockTags = 'address article aside base basefont blockquote body caption center col colgroup dd details dialog dir div dl dt fieldset figcaption figure footer form frame frameset h1 h2 h3 h4 h5 h6 head header hr html iframe legend li link main menu menuitem nav noframes ol optgroup option p param search section summary table tbody td tfoot th thead title tr track ul'.split(' ');
+  const blocks = [
+    ...blockTags.map(tag => [`<${tag}>`, `</${tag}>`, '']),
+    ['   <BLOCKQUOTE class="example">', '</BLOCKQUOTE>', ''],
+    ['</blockquote>', '', ''], ['<blockquote', '', ''],
+    ['<custom-widget data-x="a b" enabled>', '</custom-widget>', ''],
+    ['<a href="example">', '</a>', ''], ['</custom-widget>', '', ''],
+    ['<custom-widget data-x=plain />', '', ''],
+    ...['script', 'pre', 'style', 'textarea'].map(tag => [`<${tag.toUpperCase()} class="example">`, `</${tag.toUpperCase()}>`, 'dedicated']),
+    ['<!--', '-->', 'dedicated'], ['<?instruction', '?>', 'dedicated'],
+    ['<!DOCTYPE', '>', 'dedicated'], ['<![CDATA[', ']]>', 'dedicated']
+  ];
+  it.each(blocks)('excludes HTML candidates starting with %s', (start, end, kind) => {
+    const lines = [start, ...(kind ? [''] : []), ...hidden, end || 'inside HTML'];
+    // Types 6/7 continue past the closing tag until a blank line.
+    if (!kind) lines.push(...hidden, '');
+    const startLine = lines.length + 2;
+    lines.push('```tree', 'right', '```', '', 'parent_path|name|type', '---|---|---', '||outside|file');
+    const text = lines.join('\n');
+    expect(enumerateTargets(text)).toMatchObject([
+      { kind: 'tree', number: 1, startLine }, { kind: 'table', number: 1 }
+    ]);
+    for (const source of [undefined, 'tree:1']) {
+      const nodes = parseInput(text, 'html.md', { source });
+      expect(nodes[0].name).toBe('right');
+      expect(nodes[0].source).toMatchObject({ file: 'html.md', line: startLine, target: 'tree:1' });
+    }
+    expect(parseInput(text, 'html.md', { source: 'table:1' })[0].name).toBe('outside');
+  });
+  it.each(['<script></script>', '<!-- done -->', '<?done?>', '<!DOCTYPE html>', '<![CDATA[done]]>'])('ends a dedicated HTML block on its opening line: %s', start => {
+    expect(parseInput(`${start}\n\`\`\`tree\nright\n\`\`\``, 'x.md')[0].name).toBe('right');
+  });
+  it.each(['<blockquote-extra>inline', '<scripture>inline', '<blockquoteish', '<custom bad=>', '<custom> trailing', '<!lowercase'])('respects tag boundaries and standalone tag syntax: %s', start => {
+    expect(parseInput(`${start}\n\`\`\`tree\nright\n\`\`\``, 'x.md')[0].name).toBe('right');
+  });
+  it.each(['# heading', 'heading\n===', '---', '```text\nexample\n```'])('starts standalone HTML after a completed block: %s', prefix => {
+    expect(parseInput(`${prefix}\n<custom>\n\`\`\`tree\nhidden\n\`\`\`\n\n\`\`\`tree\nright\n\`\`\``, 'x.md')[0].name).toBe('right');
+  });
+  it('validates HTML decoration in a pipe-delimited first cell', () => {
+    expect(() => parseInput('id|parent_id|name|type\n---|---|---|---\np||parent|directory\n<div>|p|child|file', 'x.md')).toThrow(/CELL_DECORATION/);
+  });
+  it('recognizes HTML following a table without a blank line', () => {
+    const text = 'parent_path|name|type\n---|---|---\n||outside|file\n<blockquote>\n```tree\nhidden\n```\n</blockquote>\n\n```tree\nright\n```';
+    expect(parseInput(text, 'x.md')[0].name).toBe('right');
+    expect(parseInput(text, 'x.md', { source: 'table:1' })[0].name).toBe('outside');
+  });
+  it('does not let a generic tag interrupt a paragraph', () => {
+    expect(parseInput('paragraph\n<custom>\n```tree\nright\n```', 'x.md')[0].name).toBe('right');
   });
 });

@@ -49,7 +49,9 @@ describe('CLI common pipeline and filesystem safety', () => {
     ['bad.csv', 'id,parent_id,name,type\na,,ok,file\nb,,../escape,file', 'INVALID_NAME'],
     ['bad.md', '```tree\nroot/\n  ok\n  ../escape\n```', 'INVALID_NAME'],
     ['bad.csv', 'id,parent_id,name,type\na,,same,file\nb,,SAME,directory', 'OUTPUT_COLLISION'],
-    ['bad.md', 'parent_path|name|type\n---|---|---\n||../escape|file', 'INVALID_NAME']
+    ['bad.md', 'parent_path|name|type\n---|---|---\n||../escape|file', 'INVALID_NAME'],
+    ['bad.md', 'parent_path|name|type\n---|---|---\n||ok|file\n||_bold_.txt|file', 'CELL_DECORATION'],
+    ['bad.md', 'id|parent_id|name|type\n---|---|---|---\na||ok|file\npre**bold**post||child|file', 'CELL_DECORATION']
   ])('rejects %s consistently before any write', async (name, contents, code) => {
     const dir = await sandbox(), input = path.join(dir, name), output = path.join(dir, 'output');
     await writeFile(input, contents);
@@ -75,5 +77,18 @@ describe('CLI common pipeline and filesystem safety', () => {
     const result = await cli(['preview', '-i', 'example-structure.md']);
     expect(result.status, result.output).toBe(0);
     expect(result.output).toContain('handler.ts');
+  });
+});
+
+
+describe('CLI selection after HTML examples', () => {
+  it.each([undefined, 'tree:1'])('selects the later top-level tree with options %s', async source => {
+    const dir = await sandbox(), input = path.join(dir, 'html.md');
+    await writeFile(input, '<BLOCKQUOTE class="example">\n```tree\nhidden\n```\nparent_path|name|type\n---|---|---\n||hidden|file\n</BLOCKQUOTE>\n\n```tree\nright\n```');
+    const result = await cli(['preview', '-i', input, ...(source ? ['--source', source] : [])]);
+    expect(result.status, result.output).toBe(0);
+    expect(result.output).toContain('right');
+    expect(result.output).not.toContain('hidden');
+    expect((await cli(['validate', '-i', input, ...(source ? ['--source', source] : [])])).status).toBe(0);
   });
 });

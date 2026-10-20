@@ -122,6 +122,8 @@ npm run create -- --input examples/branches.md --tree-style branches --output sa
 `--tree-style auto|indent|branches` を指定できます。auto は拡張子で CSV / Markdown を
 選び、Markdown では最初の tree を優先します。tree がなく候補表が複数ある場合は
 種類ごとの 1 始まり番号で `--source table:2` のように指定します。
+通常のフェンス・引用・リスト・HTML ブロック内の tree / 表の例は候補番号に含めません。
+HTML 内の例を除いた文書順で種類ごとに番号を数え、自動選択と明示選択に同じ規則を適用します。
 CSV への source、および CSV・表への tree-style（明示した auto も含む）はエラーです。
 
 行データの type は `file` / `directory` のみ。根は空の親セルで示し、親の後置も可能です。
