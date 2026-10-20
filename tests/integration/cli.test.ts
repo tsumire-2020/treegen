@@ -82,6 +82,19 @@ describe('CLI common pipeline and filesystem safety', () => {
 
 
 describe('CLI selection after HTML examples', () => {
+  it.each([undefined, 'tree:1'])('selects the top-level tree after a table and HTML attribute pipe with options %s', async source => {
+    const dir = await sandbox(), input = path.join(dir, 'table-html.md');
+    await writeFile(input, 'parent_path|name|type\n---|---|---\n||outside|file\n<blockquote title="a|b">\n```tree\nhidden\n```\n</blockquote>\n\n```tree\nright\n```');
+    for (const command of ['preview', 'validate']) {
+      const result = await cli([command, '-i', input, ...(source ? ['--source', source] : [])]);
+      expect(result.status, result.output).toBe(0);
+      expect(result.output).not.toContain('hidden');
+      if (command === 'preview') {
+        expect(result.output).toContain('right');
+        expect(result.output).not.toContain('outside');
+      }
+    }
+  });
   it.each([undefined, 'tree:1'])('selects the later top-level tree with options %s', async source => {
     const dir = await sandbox(), input = path.join(dir, 'html.md');
     await writeFile(input, '<BLOCKQUOTE class="example">\n```tree\nhidden\n```\nparent_path|name|type\n---|---|---\n||hidden|file\n</BLOCKQUOTE>\n\n```tree\nright\n```');

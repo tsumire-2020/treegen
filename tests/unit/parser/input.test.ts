@@ -275,12 +275,44 @@ describe('D15/D16 HTML block boundaries', () => {
     expect(parseInput(`${prefix}\n<custom>\n\`\`\`tree\nhidden\n\`\`\`\n\n\`\`\`tree\nright\n\`\`\``, 'x.md')[0].name).toBe('right');
   });
   it('validates HTML decoration in a pipe-delimited first cell', () => {
-    expect(() => parseInput('id|parent_id|name|type\n---|---|---|---\np||parent|directory\n<div>|p|child|file', 'x.md')).toThrow(/CELL_DECORATION/);
+    const errors = diagnostics(() => parseInput('id|parent_id|name|type\n---|---|---|---\np||parent|directory\n|<div>|p|child|file', 'x.md'));
+    expect(errors).toContainEqual(expect.objectContaining({
+      code: 'CELL_DECORATION', field: 'id', value: '<div>',
+      source: expect.objectContaining({ line: 4, column: 2, target: 'table:1' })
+    }));
   });
   it('recognizes HTML following a table without a blank line', () => {
     const text = 'parent_path|name|type\n---|---|---\n||outside|file\n<blockquote>\n```tree\nhidden\n```\n</blockquote>\n\n```tree\nright\n```';
     expect(parseInput(text, 'x.md')[0].name).toBe('right');
     expect(parseInput(text, 'x.md', { source: 'table:1' })[0].name).toBe('outside');
+  });
+  it.each([
+    ['<blockquote title="a|b">', '</blockquote>'],
+    ['<custom-widget title="a|b">', '</custom-widget>'],
+    ['<script title="a|b">', '</script>'],
+    ['<!-- a|b', '-->']
+  ])('ends a table before the HTML block %s even with an attribute pipe', (start, end) => {
+    const table = 'parent_path|name|type\n---|---|---\n||outside|file';
+    const text = [table, start, '```tree', 'hidden', '```', end, '', '```tree', 'right', '```'].join('\n');
+    expect(enumerateTargets(text)).toEqual([
+      { kind: 'table', number: 1, startLine: 1, text: table, closed: true },
+      { kind: 'tree', number: 1, startLine: 11, text: 'right', closed: true, indent: 0 }
+    ]);
+    for (const source of [undefined, 'tree:1']) {
+      const nodes = parseInput(text, 'html.md', { source });
+      expect(nodes.map(n => n.name)).toEqual(['right']);
+      expect(nodes[0].source).toMatchObject({ file: 'html.md', line: 11, target: 'tree:1' });
+    }
+    const nodes = parseInput(text, 'html.md', { source: 'table:1' });
+    expect(nodes.map(n => n.name)).toEqual(['outside']);
+    expect(nodes[0].source).toMatchObject({ file: 'html.md', line: 3, target: 'table:1' });
+  });
+  it.each(['***', '___', '---', '# heading | text', '> quote | text', '- item | text', '1. item | text', '```text\na|b\n```'])('ends a table at the following block: %s', boundary => {
+    const table = 'parent_path|name|type\n---|---|---\n||outside|file';
+    const text = `${table}\n${boundary}\n\n\`\`\`tree\nright\n\`\`\``;
+    expect(enumerateTargets(text)[0].text).toBe(table);
+    expect(parseInput(text, 'x.md', { source: 'table:1' }).map(n => n.name)).toEqual(['outside']);
+    expect(parseInput(text, 'x.md')[0].name).toBe('right');
   });
   it('does not let a generic tag interrupt a paragraph', () => {
     expect(parseInput('paragraph\n<custom>\n```tree\nright\n```', 'x.md')[0].name).toBe('right');

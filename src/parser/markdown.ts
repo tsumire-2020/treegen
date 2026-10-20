@@ -65,11 +65,18 @@ export function enumerateTargets(text: string, file = '<input>'): MarkdownTarget
     const candidate = header.some(h => h === 'name' || h === 'type') && header.some(h => ['id', 'parent_id', 'parent_path'].includes(h));
     const start = i;
     i += 2;
-    // Keep pipe-delimited rows for cell validation, including HTML in the
-    // first cell, but let a following HTML block reach the container scanner.
-    while (i < lines.length && lines[i].trim() && (lines[i].includes('|') || !htmlBlockEnd(lines[i], true)) && !/^(?: {4}|\t| {0,3}(?:>|`{3,}|~{3,}|#{1,6}(?:\s|$)|[-+*] |\d+[.)] ))/.test(lines[i])) i++;
+    // Block starts end a table even when they contain pipes. A table is not
+    // a paragraph, so standalone HTML tags can start a block here too.
+    while (i < lines.length && lines[i].trim()) {
+      const row = lines[i];
+      if (htmlBlockEnd(row, false) ||
+        /^(?: {4}|\t| {0,3}(?:>|`{3,}|~{3,}|#{1,6}(?:\s|$)|[-+*] |\d+[.)] ))/.test(row) ||
+        /^ {0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})$/.test(row)) break;
+      // Keep ordinary rows, including those missing pipes, for cell validation.
+      i++;
+    }
     if (candidate) targets.push({ kind: 'table', number: ++table, startLine: start + 1, text: lines.slice(start, i).join('\n'), closed: true });
-    i--;
+    i--; // Reprocess the boundary line in the outer container scanner.
   }
   return targets;
 }
