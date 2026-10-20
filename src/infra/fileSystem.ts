@@ -2,7 +2,12 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 
 export async function readTextFile(filePath: string): Promise<string> {
-  return readFile(filePath, "utf-8");
+  const bytes = await readFile(filePath);
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    throw new Error(`${JSON.stringify(filePath)} [INVALID_UTF8]: UTF-8 として読み取れません`);
+  }
 }
 
 export async function writeTextFile(filePath: string, content: string): Promise<void> {

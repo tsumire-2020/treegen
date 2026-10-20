@@ -1,0 +1,8 @@
+# 親パス方式
+
+| parent_path | name | type |
+| --- | --- | --- |
+| | project | directory |
+| project | src | directory |
+| project/src | index.ts | file |
+| project | README.md | file |

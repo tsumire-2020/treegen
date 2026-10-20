@@ -1,51 +1,28 @@
 import path from "node:path";
 import { treeNodeSchema } from "./schema.js";
 import { TreeNode } from "./tree-node.js";
+import { Diagnostic, InputError } from "../utils/errors.js";
 
-const INVALID_SEGMENT_PATTERNS = [/\.\./, /[<>:"|?*]/];
-
+export function unsafeName(name: string): boolean {
+  return !name.trim() || name === '.' || /\.\.|[<>:"|?*\x00-\x1f\x7f-\x9f\\]/.test(name) || path.isAbsolute(name) || /^[A-Za-z]:/.test(name) || name.split('/').some(s => !s || s === '.');
+}
 export function validateTree(nodes: TreeNode[]): void {
-  if (nodes.length === 0) {
-    throw new Error("tree構造が空です");
-  }
-
-  nodes.forEach((node) => validateNode(node));
-  validateSiblingDuplicates(nodes);
-}
-
-function validateNode(node: TreeNode): void {
-  treeNodeSchema.parse(node);
-
-  if (node.name.trim().length === 0) {
-    throw new Error("名前が空のノードがあります");
-  }
-
-  INVALID_SEGMENT_PATTERNS.forEach((pattern) => {
-    if (pattern.test(node.name)) {
-      throw new Error(`危険または不正な名前を検出しました: ${node.name}`);
+  const errors: Diagnostic[] = [];
+  const seen = new Map<string, TreeNode>();
+  if (!nodes.length) errors.push({ code: 'EMPTY_TREE', message: 'tree構造が空です' });
+  function walk(node: TreeNode, parent: string): void {
+    treeNodeSchema.parse(node);
+    const output = parent ? `${parent}/${node.name}` : node.name;
+    if (unsafeName(node.name)) errors.push({ code: 'INVALID_NAME', message: '危険または不正な名前です', source: node.fields?.name ?? node.source, field: 'name', value: node.name });
+    const key = output.toLowerCase();
+    const prior = seen.get(key);
+    if (prior) errors.push({ code: 'OUTPUT_COLLISION', message: '同一出力先に重複があります（大小文字・型を問わず拒否）', source: node.source, field: 'path', value: output, related: [prior.source, prior.fields?.parent_path, node.fields?.parent_path, prior.fields?.parent_id, node.fields?.parent_id].filter((s): s is NonNullable<typeof s> => !!s) });
+    else seen.set(key, node);
+    if (node.type === 'file' && node.children.length) {
+      for (const child of node.children) errors.push({ code: 'FILE_HAS_CHILD', message: 'ファイルの下に子ノードは置けません', source: child.fields?.parent_id ?? child.fields?.parent_path ?? child.source, value: node.name, related: [node.fields?.type ?? node.source].filter((s): s is NonNullable<typeof s> => !!s) });
     }
-  });
-
-  if (path.isAbsolute(node.name)) {
-    throw new Error(`絶対パスは使用できません: ${node.name}`);
+    node.children.forEach(child => walk(child, output));
   }
-
-  if (node.type === "file" && node.children.length > 0) {
-    throw new Error(`ファイルの下に子ノードは置けません: ${node.name}`);
-  }
-
-  validateSiblingDuplicates(node.children);
-  node.children.forEach((child) => validateNode(child));
-}
-
-function validateSiblingDuplicates(nodes: TreeNode[]): void {
-  const seen = new Set<string>();
-
-  for (const node of nodes) {
-    const key = `${node.type}:${node.name}`;
-    if (seen.has(key)) {
-      throw new Error(`同一階層に重複があります: ${node.name}`);
-    }
-    seen.add(key);
-  }
+  nodes.forEach(n => walk(n, ''));
+  if (errors.length) throw new InputError(errors);
 }

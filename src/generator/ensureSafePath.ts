@@ -4,7 +4,8 @@ export function ensureSafePath(outputRoot: string, targetPath: string): string {
   const normalizedRoot = path.resolve(outputRoot);
   const normalizedTarget = path.resolve(targetPath);
 
-  if (normalizedTarget !== normalizedRoot && !normalizedTarget.startsWith(`${normalizedRoot}${path.sep}`)) {
+  const relative = path.relative(normalizedRoot, normalizedTarget);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
     throw new Error(`出力先ルートの外へ出るパスは許可されていません: ${targetPath}`);
   }
 

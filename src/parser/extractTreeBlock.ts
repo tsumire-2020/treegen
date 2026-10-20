@@ -1,11 +1,5 @@
-const TREE_BLOCK_REGEX = /```tree\s*([\s\S]*?)```/m;
-
+import { selectTarget } from './markdown.js';
 export function extractTreeBlock(markdown: string): string {
-  const match = markdown.match(TREE_BLOCK_REGEX);
-
-  if (!match || !match[1]) {
-    throw new Error("treeコードブロックが見つかりませんでした");
-  }
-
-  return match[1].trimEnd();
+  const target = selectTarget(markdown, '<input>', 'tree:1');
+  return target.text.split('\n').map(line => line.slice(Math.min(line.match(/^ */)![0].length, target.indent ?? 0))).join('\n').trimEnd();
 }

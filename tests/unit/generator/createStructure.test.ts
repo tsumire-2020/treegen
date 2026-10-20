@@ -88,3 +88,36 @@ describe("createStructure", () => {
     expect(writeTextFile).not.toHaveBeenCalled();
   });
 });
+
+describe('preflight validation', () => {
+  it('validates the whole tree before mkdir/write even when a safe node comes first', async () => {
+    vi.clearAllMocks();
+    await expect(createStructure([
+      { name: 'safe', type: 'file', depth: 0, children: [] },
+      { name: '../escape', type: 'file', depth: 0, children: [] }
+    ], { outputRoot: '/tmp/treegen-output', dryRun: false, overwriteMode: 'force' })).rejects.toThrow(/INVALID_NAME/);
+    expect(makeDirectory).not.toHaveBeenCalled();
+    expect(writeTextFile).not.toHaveBeenCalled();
+  });
+  it('rejects same-name file/directory and case collisions before writes', async () => {
+    vi.clearAllMocks();
+    await expect(createStructure([
+      { name: 'same', type: 'file', depth: 0, children: [] },
+      { name: 'SAME', type: 'directory', depth: 0, children: [] }
+    ], { outputRoot: '/tmp/treegen-output', dryRun: false, overwriteMode: 'force' })).rejects.toThrow(/OUTPUT_COLLISION/);
+    expect(makeDirectory).not.toHaveBeenCalled();
+    expect(writeTextFile).not.toHaveBeenCalled();
+  });
+});
+
+describe('generation diagnostics', () => {
+  it('attaches the originating input range to a write failure', async () => {
+    vi.clearAllMocks();
+    vi.mocked(fileExists).mockResolvedValue(false);
+    vi.mocked(writeTextFile).mockRejectedValueOnce(new Error('disk failure'));
+    const source = { file: 'input.csv', line: 4, column: 7, endLine: 4, endColumn: 12, record: 3 };
+    await expect(createStructure([{ name: 'file', type: 'file', depth: 0, children: [], source }], {
+      outputRoot: '/tmp/treegen-output', dryRun: false, overwriteMode: 'error'
+    })).rejects.toMatchObject({ diagnostics: [expect.objectContaining({ code: 'GENERATION_ERROR', source, value: 'file' })] });
+  });
+});
